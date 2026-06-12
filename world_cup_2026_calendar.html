@@ -1439,16 +1439,6 @@ body {
 
   <div id="group-legend"></div>
 
-  <div id="ball-name">
-    <span class="ball-label">Official Match Ball</span>
-    <span class="ball-title">Trionda</span>
-    <div class="ball-colors">
-      <span class="ball-color-bar" style="background:#e74c3c" title="Mexico"></span>
-      <span class="ball-color-bar" style="background:#2ecc71" title="Canada"></span>
-      <span class="ball-color-bar" style="background:#3498db" title="USA"></span>
-    </div>
-    <span class="ball-maker">adidas</span>
-  </div>
 
   <div id="info-buttons">
     <button class="info-btn" onclick="showOverlay('map')">HOW TO BET</button>
@@ -1787,7 +1777,7 @@ async function fetchLiveData() {
   computeLocalStandings();
   liveData.lastFetch = Date.now();
 
-  // Always keep polling during the tournament: 60s when live, 5 min otherwise
+  // Always keep polling during the tournament: 60s live, 5 min otherwise
   const refreshNow = new Date();
   if (refreshNow >= TOURNAMENT_START && refreshNow <= TOURNAMENT_END) {
     setTimeout(fetchLiveData, liveData.isLive ? 60000 : 300000);
@@ -1835,12 +1825,10 @@ function processScoreboard(data) {
     const aScore = parseInt(away.score ?? -1);
     if (hScore < 0 || aScore < 0) return;
 
-    // Find our matching 2026 fixture — apply score once kickoff time has passed
-    const match = MATCHES.find(m => {
-      if (m.home !== hCode || m.away !== aCode) return false;
-      const mDateTime = new Date(m.date + 'T' + m.time + ':00');
-      return mDateTime <= now;
-    });
+    // Find our matching 2026 fixture.
+    // No kickoff-time guard: ESPN only returns scores for live/finished matches,
+    // so there is no risk of picking up scores for future games.
+    const match = MATCHES.find(m => m.home === hCode && m.away === aCode);
 
     if (match) {
       match.score = [hScore, aScore];
