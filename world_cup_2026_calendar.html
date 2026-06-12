@@ -1825,12 +1825,10 @@ function processScoreboard(data) {
     const aScore = parseInt(away.score ?? -1);
     if (hScore < 0 || aScore < 0) return;
 
-    // Find our matching 2026 fixture — also verify the match date is in the past
-    const match = MATCHES.find(m => {
-      if (m.home !== hCode || m.away !== aCode) return false;
-      const mDateTime = new Date(m.date + 'T' + m.time + ':00');
-      return mDateTime <= now; // apply score once kickoff time has passed
-    });
+    // Find our matching 2026 fixture.
+    // No kickoff-time guard: ESPN only returns scores for live/finished matches,
+    // so there is no risk of picking up scores for future games.
+    const match = MATCHES.find(m => m.home === hCode && m.away === aCode);
 
     if (match) {
       match.score = [hScore, aScore];
