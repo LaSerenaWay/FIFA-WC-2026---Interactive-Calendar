@@ -1724,8 +1724,56 @@ const ALL_DATES = [...new Set(MATCHES.map(m => m.date))].sort();
 const liveData = {
   standings: {},   // group letter -> sorted array of standing rows
   lastFetch: null,
-  isLive: false
+  isLive: false,
+  historicalFetched: false
 };
+
+/* ── SCORE CACHE (localStorage) ─────────────────────────────────────────────
+   Persists FT results across page reloads so yesterday's scores never vanish.
+   Key: "HOME_AWAY"  Value: [homeScore, awayScore]
+   ─────────────────────────────────────────────────────────────────────────── */
+const SCORE_CACHE_KEY = 'wc2026_ft_v1';
+
+function loadScoreCache() {
+  try { return JSON.parse(localStorage.getItem(SCORE_CACHE_KEY) || '{}'); }
+  catch(e) { return {}; }
+}
+function saveToScoreCache(homeCode, awayCode, score) {
+  try {
+    const cache = loadScoreCache();
+    cache[homeCode + '_' + awayCode] = score;
+    localStorage.setItem(SCORE_CACHE_KEY, JSON.stringify(cache));
+  } catch(e) {}
+}
+function restoreScoresFromCache() {
+  const cache = loadScoreCache();
+  MATCHES.forEach(m => {
+    const saved = cache[m.home + '_' + m.away];
+    if (saved && !Array.isArray(m.score)) {
+      m.score = saved;
+      m.statusLabel = 'FT';
+    }
+  });
+}
+
+// Fetch ESPN scoreboards for each past tournament day so first-time visitors
+// (no localStorage yet) still see all completed match results.
+async function fetchHistoricalScores() {
+  const now = new Date();
+  const fetches = [];
+  for (let daysBack = 1; daysBack <= 40; daysBack++) {
+    const d = new Date(now.getTime() - daysBack * 86400000);
+    if (d < TOURNAMENT_START) break;
+    const dateStr = d.toISOString().slice(0, 10).replace(/-/g, '');
+    fetches.push(
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    );
+  }
+  const results = await Promise.all(fetches);
+  results.forEach(data => { if (data) processScoreboard(data); });
+}
 
 // ESPN team abbreviation -> our team codes (common mismatches)
 const ESPN_CODE_MAP = {
@@ -1762,6 +1810,20 @@ async function fetchLiveData() {
     return;
   }
 
+  // First call only: restore persisted FT scores instantly from localStorage,
+  // then backfill any past days for first-time visitors (no localStorage yet).
+  if (!liveData.historicalFetched) {
+    liveData.historicalFetched = true;
+    restoreScoresFromCache();
+    fetchHistoricalScores().then(() => {
+      computeLocalStandings();
+      updateDisplay();
+    });
+  }
+
+  // Reset live flag before processing today's scoreboard
+  liveData.isLive = false;
+
   // During the tournament: fetch live scores from ESPN
   try {
     const scoreRes = await fetch(
@@ -1790,7 +1852,6 @@ const TOURNAMENT_START = new Date('2026-06-11T00:00:00');
 const TOURNAMENT_END   = new Date('2026-07-20T23:59:59');
 
 function processScoreboard(data) {
-  liveData.isLive = false;
   const now = new Date();
 
   // Silently bail if we're outside the tournament window — prevents old FIFA data
@@ -1816,6 +1877,10 @@ function processScoreboard(data) {
 
     const stateStr = comp.status?.type?.state || '';
     const desc = (comp.status?.type?.description || '').toLowerCase();
+
+    // Skip pre-game: ESPN returns state="pre" with score 0-0 before kickoff
+    if (stateStr === 'pre') return;
+
     const isFinal = stateStr === 'post' || desc.includes('final');
     const isLive = stateStr === 'in';
     const isHT = desc.includes('half time') || desc.includes('halftime');
@@ -1835,6 +1900,9 @@ function processScoreboard(data) {
       match.statusLabel = isFinal ? 'FT' : (isHT ? 'HT' : (isLive ? 'LIVE' : null));
       match.clock = clock;
       if (isLive) liveData.isLive = true;
+
+      // Persist final scores to localStorage so they survive page reloads
+      if (isFinal) saveToScoreCache(match.home, match.away, [hScore, aScore]);
     }
   });
 }
