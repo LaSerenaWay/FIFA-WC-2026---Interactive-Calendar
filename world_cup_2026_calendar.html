@@ -1763,10 +1763,10 @@ async function fetchHistoricalScores() {
   const fetches = [];
   for (let daysBack = 1; daysBack <= 40; daysBack++) {
     const d = new Date(now.getTime() - daysBack * 86400000);
-    if (d < TOURNAMENT_START) break;
-    const dateStr = d.toISOString().slice(0, 10).replace(/-/g, '');
+    const dateStr = d.toISOString().slice(0, 10); // UTC date string e.g. '2026-06-11'
+    if (dateStr < '2026-06-11') break;            // stop before tournament start
     fetches.push(
-      fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`)
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr.replace(/-/g, '')}`)
         .then(r => r.ok ? r.json() : null)
         .catch(() => null)
     );
