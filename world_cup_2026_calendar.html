@@ -536,6 +536,25 @@ body {
   max-width: 100%;
 }
 
+/* Projected team name styling on knockout match cards */
+.match-team .team-name.projected-team { color: var(--text-dark); opacity: 0.72; font-style: italic; }
+.proj-badge {
+  display: inline-block;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 1px;
+  background: rgba(201,168,76,0.22);
+  color: var(--gold);
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+  text-transform: uppercase;
+}
+
 /* Kickoff time displayed in center when no score yet */
 .match-score {
   font-family: 'Roboto Mono', monospace;
@@ -2068,12 +2087,17 @@ function isGroupComplete(grp) {
 
 function getKnownGroupTeam(grp, rank) {
   const clinched = getClinchedRank(grp, rank);
-  if (clinched) return { code: clinched, known: true, clinched: true };
-  if (isGroupComplete(grp)) {
-    const code = liveData.standings[grp]?.[rank - 1]?.code || null;
-    return code ? { code, known: true, clinched: false } : { code: null, known: false, clinched: false };
-  }
-  return { code: null, known: false, clinched: false };
+  if (clinched) return { code: clinched, known: true, clinched: true, projected: false };
+  const rows = liveData.standings[grp];
+  if (!rows || !rows.length) return { code: null, known: false, clinched: false, projected: false };
+  const code = rows[rank - 1]?.code || null;
+  if (!code) return { code: null, known: false, clinched: false, projected: false };
+  const anyPlayed = rows.some(r => r.played > 0);
+  if (!anyPlayed) return { code: null, known: false, clinched: false, projected: false };
+  // Group fully played — position is final
+  if (isGroupComplete(grp)) return { code, known: true, clinched: false, projected: false };
+  // Position not yet certain — show as projected based on current standings
+  return { code, known: true, clinched: false, projected: true };
 }
 
 function getAdvancingThirdGroupsKey() {
@@ -2087,20 +2111,44 @@ function getAdvancingThirdGroupsKey() {
   return thirds.slice(0, 8).map(t => t.group).sort().join('');
 }
 
+function getProjectedThirdGroupsKey() {
+  // Use current third-place teams from all groups that have played at least one match
+  const eligible = 'ABCDEFGHIJKL'.split('').filter(g => {
+    const rows = liveData.standings[g];
+    return rows && rows.length >= 3 && rows.some(r => r.played > 0);
+  });
+  if (eligible.length < 8) return null;
+  const thirds = eligible.map(g => {
+    const row = liveData.standings[g][2];
+    return { group: g, pts: row.pts, gd: row.gd, gf: row.gf, code: row.code };
+  }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.code.localeCompare(b.code));
+  return thirds.slice(0, 8).map(t => t.group).sort().join('');
+}
+
 function resolveThirdPlaceSlot(winnerGroup, slotLabel) {
-  const key = getAdvancingThirdGroupsKey();
-  if (!key) {
-    return { code: null, known: false, clinched: false, label: 'Best 3rd (' + slotLabel.replace(/^3/, '') + ')' };
+  const fallbackLabel = 'Best 3rd (' + slotLabel.replace(/^3/, '') + ')';
+  // If all groups finished — use the real key (final answer)
+  const finalKey = getAdvancingThirdGroupsKey();
+  if (finalKey) {
+    const srcGroup = ANNEX_C_LOOKUP[finalKey]?.[winnerGroup];
+    if (!srcGroup) return { code: null, known: false, clinched: false, projected: false, label: fallbackLabel };
+    const team = getKnownGroupTeam(srcGroup, 3);
+    if (team.known) return { ...team, projected: false, label: TEAM_MAP[team.code]?.name || team.code };
+    return { code: null, known: false, clinched: false, projected: false, label: '3rd Gr. ' + srcGroup };
   }
-  const srcGroup = ANNEX_C_LOOKUP[key]?.[winnerGroup];
-  if (!srcGroup) {
-    return { code: null, known: false, clinched: false, label: 'Best 3rd (' + slotLabel.replace(/^3/, '') + ')' };
+  // Not all groups done yet — show projected third based on current standings
+  const projKey = getProjectedThirdGroupsKey();
+  if (projKey) {
+    const srcGroup = ANNEX_C_LOOKUP[projKey]?.[winnerGroup];
+    if (srcGroup) {
+      const rows = liveData.standings[srcGroup];
+      const code = rows?.[2]?.code;
+      if (code && TEAM_MAP[code]) {
+        return { code, known: true, clinched: false, projected: true, label: TEAM_MAP[code].name };
+      }
+    }
   }
-  const team = getKnownGroupTeam(srcGroup, 3);
-  if (team.known) {
-    return { ...team, label: TEAM_MAP[team.code]?.name || team.code };
-  }
-  return { code: null, known: false, clinched: false, label: '3rd Gr. ' + srcGroup };
+  return { code: null, known: false, clinched: false, projected: false, label: fallbackLabel };
 }
 
 function resolveWinnerSlot(matchId) {
@@ -2645,15 +2693,39 @@ function renderMatchCards(matches) {
     return;
   }
   list.innerHTML = matches.map((m, i) => {
-    const homeTeam = TEAM_MAP[m.home];
-    const awayTeam = TEAM_MAP[m.away];
     const stadium = STADIUM_MAP[m.stadium];
     const groupColor = m.group ? GROUP_COLORS[m.group] : '#666';
     const stageName = m.group ? 'Group ' + m.group : m.stage;
-    const homeName = homeTeam ? homeTeam.name : m.home;
-    const awayName = awayTeam ? awayTeam.name : m.away;
-    const homeFlag = homeTeam ? flagImg(homeTeam.iso, 40) : '\u26BD';
-    const awayFlag = awayTeam ? flagImg(awayTeam.iso, 40) : '\u26BD';
+
+    // For knockout matches, resolve placeholders (1A, 2B, W73, etc.) via bracket engine
+    let homeTeam = TEAM_MAP[m.home];
+    let awayTeam = TEAM_MAP[m.away];
+    let homeName = homeTeam ? homeTeam.name : m.home;
+    let awayName = awayTeam ? awayTeam.name : m.away;
+    let homeFlag = homeTeam ? flagImg(homeTeam.iso, 40) : '\u26BD';
+    let awayFlag = awayTeam ? flagImg(awayTeam.iso, 40) : '\u26BD';
+    let homeProjected = false, awayProjected = false;
+
+    if (m.isKnockout) {
+      const hRes = resolveMatchSide(m, 'home');
+      const aRes = resolveMatchSide(m, 'away');
+      if (hRes.known && hRes.code && TEAM_MAP[hRes.code]) {
+        homeTeam = TEAM_MAP[hRes.code];
+        homeName = homeTeam.name;
+        homeFlag = flagImg(homeTeam.iso, 40);
+        homeProjected = hRes.projected || false;
+      } else if (!hRes.known) {
+        homeName = hRes.label;
+      }
+      if (aRes.known && aRes.code && TEAM_MAP[aRes.code]) {
+        awayTeam = TEAM_MAP[aRes.code];
+        awayName = awayTeam.name;
+        awayFlag = flagImg(awayTeam.iso, 40);
+        awayProjected = aRes.projected || false;
+      } else if (!aRes.known) {
+        awayName = aRes.label;
+      }
+    }
     const hasScore = Array.isArray(m.score);
     const scoreStr = hasScore ? `${m.score[0]} – ${m.score[1]}` : null;
     const statusLabel = m.statusLabel || null;
@@ -2725,12 +2797,12 @@ function renderMatchCards(matches) {
       <div class="match-card-body">
         <div class="match-team">
           <span class="team-flag">${homeFlag}</span>
-          <span class="team-name">${homeName}</span>
+          <span class="team-name${homeProjected ? ' projected-team' : ''}">${homeName}${homeProjected ? '<span class="proj-badge">proj.</span>' : ''}</span>
         </div>
         ${scoreCenterHtml}
         <div class="match-team">
           <span class="team-flag">${awayFlag}</span>
-          <span class="team-name">${awayName}</span>
+          <span class="team-name${awayProjected ? ' projected-team' : ''}">${awayName}${awayProjected ? '<span class="proj-badge">proj.</span>' : ''}</span>
         </div>
       </div>
       ${oddsHtml}
