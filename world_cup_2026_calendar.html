@@ -635,44 +635,84 @@ body {
 /* ===== BRACKET VIEW ===== */
 .bracket-container {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
+  align-items: flex-start;
   overflow-x: auto;
-  padding: 20px 0;
+  padding: 20px 4px 24px;
 }
 .bracket-round {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 130px;
+  gap: 8px;
+  min-width: 160px;
+  flex-shrink: 0;
 }
 .bracket-round-title {
   font-family: 'Oswald', sans-serif;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--gold);
   text-align: center;
   letter-spacing: 2px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   text-transform: uppercase;
 }
 .bracket-match {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 4px;
-  padding: 5px 8px;
-  font-size: 10px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
   color: var(--text-light);
-  text-align: center;
+  text-align: left;
+  line-height: 1.4;
 }
-.bracket-match .bm-team { padding: 2px 0; }
-.bracket-match .bm-team img { width: 16px; height: auto; vertical-align: middle; margin-right: 3px; border-radius: 1px; }
+.bracket-match .bm-team {
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bracket-match .bm-team img { width: 20px; height: auto; vertical-align: middle; border-radius: 1px; flex-shrink: 0; }
+.bracket-match .bm-team.known { color: var(--text-light); font-weight: 700; }
+.bracket-match .bm-team.tbd { color: rgba(255,255,255,0.45); font-style: italic; font-weight: 400; font-size: 12px; }
+.bracket-match .bm-team.clinched { color: var(--gold-bright); }
+.bracket-match.has-known { border-color: rgba(201,168,76,0.35); background: rgba(255,255,255,0.09); }
+.bracket-match .bm-divider {
+  font-size: 9px;
+  opacity: 0.45;
+  margin: 1px 0;
+  text-align: center;
+  letter-spacing: 2px;
+}
+.bracket-match .bm-meta {
+  font-size: 10px;
+  opacity: 0.4;
+  margin-top: 4px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+.bracket-legend {
+  font-size: 12px; color: var(--text-muted); text-align: center;
+  letter-spacing: 1px; margin-bottom: 14px;
+}
+.bracket-legend span { margin: 0 12px; }
+.bracket-legend .dot-known { color: var(--gold-bright); }
+.bracket-legend .dot-tbd { color: rgba(255,255,255,0.45); font-style: italic; }
+
 .bracket-connector {
-  width: 12px;
+  width: 14px;
   min-height: 20px;
   border-right: 1px solid rgba(201,168,76,0.3);
   border-top: 1px solid rgba(201,168,76,0.3);
   border-bottom: 1px solid rgba(201,168,76,0.3);
   align-self: stretch;
+  flex-shrink: 0;
+  margin-top: 28px;
 }
 
 /* ===== WORLD MAP ===== */
@@ -1940,8 +1980,200 @@ function computeLocalStandings() {
       b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.code.localeCompare(b.code)
     );
   });
+  clearBracketCache();
 }
 
+
+/* ================================================================
+   BRACKET RESOLUTION ENGINE
+   Resolves knockout placeholders (1A, 2B, 3rd, W73…) as soon as
+   group positions are mathematically clinched or confirmed.
+   ================================================================ */
+
+const ANNEX_C_WINNERS = ['A','B','D','E','G','I','K','L'];
+const ANNEX_C_ROWS = `EJIFHGLK|EJIFHGLK|HGIDJFLK|EJIDHGLK|EJIDHFLK|EGIDJFLK|EGJDHFLK|EGIDHFLK|EGJDHFLI|EGJDHFIK|HGICJFLK|EJICHGLK|EJICHFLK|EGICJFLK|EGJCHFLK|EGICHFLK|EGJCHFLI|EGJCHFIK|HGICJDLK|CJIDHFLK|CGIDJFLK|CGJDHFLK|CGIDHFLK|CGJDHFLI|CGJDHFIK|EJICHDLK|EGICJDLK|EGJCHDLK|EGICHDLK|EGJCHDLI|EGJCHDIK|CJEDIFLK|CJEDHFLK|CEIDHFLK|CJEDHFLI|CJEDHFIK|CGEDJFLK|CGEDIFLK|CGEDJFLI|CGEDJFIK|CGEDHFLK|CGJDHFLE|CGJDHFEK|CGEDHFLI|CGEDHFIK|CGJDHFEI|HJBFIGLK|EJIBHGLK|EJBFIHLK|EJBFIGLK|EJBFHGLK|EGBFIHLK|EJBFHGLI|EJBFHGIK|HJBDIGLK|HJBDIFLK|IGBDJFLK|HGBDJFLK|HGBDIFLK|HGBDJFLI|HGBDJFIK|EJBDIHLK|EJBDIGLK|EJBDHGLK|EGBDIHLK|EJBDHGLI|EJBDHGIK|EJBDIFLK|EJBDHFLK|EIBDHFLK|EJBDHFLI|EJBDHFIK|EGBDJFLK|EGBDIFLK|EGBDJFLI|EGBDJFIK|EGBDHFLK|HGBDJFLE|HGBDJFEK|EGBDHFLI|EGBDHFIK|HGBDJFEI|HJBCIGLK|HJBCIFLK|IGBCJFLK|HGBCJFLK|HGBCIFLK|HGBCJFLI|HGBCJFIK|EJBCIHLK|EJBCIGLK|EJBCHGLK|EGBCIHLK|EJBCHGLI|EJBCHGIK|EJBCIFLK|EJBCHFLK|EIBCHFLK|EJBCHFLI|EJBCHFIK|EGBCJFLK|EGBCIFLK|EGBCJFLI|EGBCJFIK|EGBCHFLK|HGBCJFLE|HGBCJFEK|EGBCHFLI|EGBCHFIK|HGBCJFEI|HJBCIDLK|IGBCJDLK|HGBCJDLK|HGBCIDLK|HGBCJDLI|HGBCJDIK|CJBDIFLK|CJBDHFLK|CIBDHFLK|CJBDHFLI|CJBDHFIK|CGBDJFLK|CGBDIFLK|CGBDJFLI|CGBDJFIK|CGBDHFLK|CGBDHFLJ|HGBCJFDK|CGBDHFLI|CGBDHFIK|HGBCJFDI|EJBCIDLK|EJBCHDLK|EIBCHDLK|EJBCHDLI|EJBCHDIK|EGBCJDLK|EGBCIDLK|EGBCJDLI|EGBCJDIK|EGBCHDLK|HGBCJDLE|HGBCJDEK|EGBCHDLI|EGBCHDIK|HGBCJDEI|CJBDEFLK|CEBDIFLK|CJBDEFLI|CJBDEFIK|CEBDHFLK|CJBDHFLE|CJBDHFEK|CEBDHFLI|CEBDHFIK|CJBDHFEI|CGBDEFLK|CGBDJFLE|CGBDJFEK|CGBDEFLI|CGBDEFIK|CGBDJFEI|CGBDHFLE|CGBDHFEK|HGBCJFDE|CGBDHFEI|HJIFAGLK|EJIAHGLK|EJIFAHLK|EJIFAGLK|EGJFAHLK|EGIFAHLK|EGJFAHLI|EGJFAHIK|HJIDAGLK|HJIDAFLK|IGJDAFLK|HGJDAFLK|HGIDAFLK|HGJDAFLI|HGJDAFIK|EJIDAHLK|EJIDAGLK|EGJDAHLK|EGIDAHLK|EGJDAHLI|EGJDAHIK|EJIDAFLK|HJEDAFLK|HEIDAFLK|HJEDAFLI|HJEDAFIK|EGJDAFLK|EGIDAFLK|EGJDAFLI|EGJDAFIK|HGEDAFLK|HGJDAFLE|HGJDAFEK|HGEDAFLI|HGEDAFIK|HGJDAFEI|HJICAGLK|HJICAFLK|IGJCAFLK|HGJCAFLK|HGICAFLK|HGJCAFLI|HGJCAFIK|EJICAHLK|EJICAGLK|EGJCAHLK|EGICAHLK|EGJCAHLI|EGJCAHIK|EJICAFLK|HJECAFLK|HEICAFLK|HJECAFLI|HJECAFIK|EGJCAFLK|EGICAFLK|EGJCAFLI|EGJCAFIK|HGECAFLK|HGJCAFLE|HGJCAFEK|HGECAFLI|HGECAFIK|HGJCAFEI|HJICADLK|IGJCADLK|HGJCADLK|HGICADLK|HGJCADLI|HGJCADIK|CJIDAFLK|HJFCADLK|HFICADLK|HJFCADLI|HJFCADIK|CGJDAFLK|CGIDAFLK|CGJDAFLI|CGJDAFIK|HGFCADLK|CGJDAFLH|HGJCAFDK|HGFCADLI|HGFCADIK|HGJCAFDI|EJICADLK|HJECADLK|HEICADLK|HJECADLI|HJECADIK|EGJCADLK|EGICADLK|EGJCADLI|EGJCADIK|HGECADLK|HGJCADLE|HGJCADEK|HGECADLI|HGECADIK|HGJCADEI|CJEDAFLK|CEIDAFLK|CJEDAFLI|CJEDAFIK|HEFCADLK|HJFCADLE|HJECAFDK|HEFCADLI|HEFCADIK|HJECAFDI|CGEDAFLK|CGJDAFLE|CGJDAFEK|CGEDAFLI|CGEDAFIK|CGJDAFEI|HGFCADLE|HGECAFDK|HGJCAFDE|HGECAFDI|HJBAIGLK|HJBAIFLK|IJBFAGLK|HJBFAGLK|HGBAIFLK|HJBFAGLI|HJBFAGIK|EJBAIHLK|EJBAIGLK|EJBAHGLK|EGBAIHLK|EJBAHGLI|EJBAHGIK|EJBAIFLK|EJBFAHLK|EIBFAHLK|EJBFAHLI|EJBFAHIK|EJBFAGLK|EGBAIFLK|EJBFAGLI|EJBFAGIK|EGBFAHLK|HJBFAGLE|HJBFAGEK|EGBFAHLI|EGBFAHIK|HJBFAGEI|IJBDAHLK|IJBDAGLK|HJBDAGLK|IGBDAHLK|HJBDAGLI|HJBDAGIK|IJBDAFLK|HJBDAFLK|HIBDAFLK|HJBDAFLI|HJBDAFIK|FJBDAGLK|IGBDAFLK|FJBDAGLI|FJBDAGIK|HGBDAFLK|HGBDAFLJ|HGBDAFJK|HGBDAFLI|HGBDAFIK|HGBDAFIJ|EJBAIDLK|EJBDAHLK|EIBDAHLK|EJBDAHLI|EJBDAHIK|EJBDAGLK|EGBAIDLK|EJBDAGLI|EJBDAGIK|EGBDAHLK|HJBDAGLE|HJBDAGEK|EGBDAHLI|EGBDAHIK|HJBDAGEI|EJBDAFLK|EIBDAFLK|EJBDAFLI|EJBDAFIK|HEBDAFLK|HJBDAFLE|HJBDAFEK|HEBDAFLI|HEBDAFIK|HJBDAFEI|EGBDAFLK|EGBDAFLJ|EGBDAFJK|EGBDAFLI|EGBDAFIK|EGBDAFIJ|HGBDAFLE|HGBDAFEK|HGBDAFEJ|HGBDAFEI|IJBCAHLK|IJBCAGLK|HJBCAGLK|IGBCAHLK|HJBCAGLI|HJBCAGIK|IJBCAFLK|HJBCAFLK|HIBCAFLK|HJBCAFLI|HJBCAFIK|CJBFAGLK|IGBCAFLK|CJBFAGLI|CJBFAGIK|HGBCAFLK|HGBCAFLJ|HGBCAFJK|HGBCAFLI|HGBCAFIK|HGBCAFIJ|EJBAICLK|EJBCAHLK|EIBCAHLK|EJBCAHLI|EJBCAHIK|EJBCAGLK|EGBAICLK|EJBCAGLI|EJBCAGIK|EGBCAHLK|HJBCAGLE|HJBCAGEK|EGBCAHLI|EGBCAHIK|HJBCAGEI|EJBCAFLK|EIBCAFLK|EJBCAFLI|EJBCAFIK|HEBCAFLK|HJBCAFLE|HJBCAFEK|HEBCAFLI|HEBCAFIK|HJBCAFEI|EGBCAFLK|EGBCAFLJ|EGBCAFJK|EGBCAFLI|EGBCAFIK|EGBCAFIJ|HGBCAFLE|HGBCAFEK|HGBCAFEJ|HGBCAFEI|IJBCADLK|HJBCADLK|HIBCADLK|HJBCADLI|HJBCADIK|CJBDAGLK|IGBCADLK|CJBDAGLI|CJBDAGIK|HGBCADLK|HGBCADLJ|HGBCADJK|HGBCADLI|HGBCADIK|HGBCADIJ|CJBDAFLK|CIBDAFLK|CJBDAFLI|CJBDAFIK|HFBCADLK|CJBDAFLH|HJBCAFDK|HFBCADLI|HFBCADIK|HJBCAFDI|CGBDAFLK|CGBDAFLJ|CGBDAFJK|CGBDAFLI|CGBDAFIK|CGBDAFIJ|CGBDAFLH|HGBCAFDK|HGBCAFDJ|HGBCAFDI|EJBCADLK|EIBCADLK|EJBCADLI|EJBCADIK|HEBCADLK|HJBCADLE|HJBCADEK|HEBCADLI|HEBCADIK|HJBCADEI|EGBCADLK|EGBCADLJ|EGBCADJK|EGBCADLI|EGBCADIK|EGBCADIJ|HGBCADLE|HGBCADEK|HGBCADEJ|HGBCADEI|CEBDAFLK|CJBDAFLE|CJBDAFEK|CEBDAFLI|CEBDAFIK|CJBDAFEI|HFBCADLE|HEBCAFDK|HJBCAFDE|HEBCAFDI|CGBDAFLE|CGBDAFEK|CGBDAFEJ|CGBDAFEI|HGBCAFDE`.split('|').filter(r => r.length === 8);
+const ANNEX_C_LOOKUP = {};
+ANNEX_C_ROWS.forEach(row => {
+  const key = row.split('').sort().join('');
+  if (ANNEX_C_LOOKUP[key]) return;
+  const map = {};
+  ANNEX_C_WINNERS.forEach((w, i) => { map[w] = row[i]; });
+  ANNEX_C_LOOKUP[key] = map;
+});
+
+const bracketResolveCache = {};
+
+function clearBracketCache() {
+  Object.keys(bracketResolveCache).forEach(k => delete bracketResolveCache[k]);
+}
+
+function computeGroupTable(grp, hypothetical) {
+  const table = {};
+  GROUPS[grp].forEach(code => {
+    table[code] = { code, played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, pts:0 };
+  });
+  MATCHES.filter(m => m.group === grp).forEach(m => {
+    const score = Array.isArray(m.score) ? m.score : hypothetical[m.id];
+    if (!score) return;
+    const [hs, as_] = score;
+    [{ code: m.home, gf: hs, ga: as_ }, { code: m.away, gf: as_, ga: hs }].forEach(s => {
+      const row = table[s.code];
+      if (!row) return;
+      row.played++;
+      row.gf += s.gf;
+      row.ga += s.ga;
+      row.gd += (s.gf - s.ga);
+      if (s.gf > s.ga) { row.won++; row.pts += 3; }
+      else if (s.gf === s.ga) { row.drawn++; row.pts += 1; }
+      else { row.lost++; }
+    });
+  });
+  return Object.values(table).sort((a, b) =>
+    b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.code.localeCompare(b.code)
+  );
+}
+
+function enumerateGroupOutcomes(grp, callback) {
+  const remaining = MATCHES.filter(m => m.group === grp && !Array.isArray(m.score));
+  if (!remaining.length) { callback({}); return; }
+  function go(i, hyp) {
+    if (i === remaining.length) { callback(hyp); return; }
+    const m = remaining[i];
+    [['H', [1, 0]], ['D', [1, 1]], ['A', [0, 1]]].forEach(([, score]) => {
+      hyp[m.id] = score;
+      go(i + 1, hyp);
+      delete hyp[m.id];
+    });
+  }
+  go(0, {});
+}
+
+function getClinchedRank(grp, rank) {
+  let total = 0;
+  const counts = {};
+  enumerateGroupOutcomes(grp, hyp => {
+    total++;
+    const team = computeGroupTable(grp, hyp)[rank - 1]?.code;
+    if (team) counts[team] = (counts[team] || 0) + 1;
+  });
+  for (const [code, n] of Object.entries(counts)) {
+    if (n === total) return code;
+  }
+  return null;
+}
+
+function isGroupComplete(grp) {
+  return MATCHES.filter(m => m.group === grp).every(m => Array.isArray(m.score));
+}
+
+function getKnownGroupTeam(grp, rank) {
+  const clinched = getClinchedRank(grp, rank);
+  if (clinched) return { code: clinched, known: true, clinched: true };
+  if (isGroupComplete(grp)) {
+    const code = liveData.standings[grp]?.[rank - 1]?.code || null;
+    return code ? { code, known: true, clinched: false } : { code: null, known: false, clinched: false };
+  }
+  return { code: null, known: false, clinched: false };
+}
+
+function getAdvancingThirdGroupsKey() {
+  if (!'ABCDEFGHIJKL'.split('').every(isGroupComplete)) return null;
+  const thirds = 'ABCDEFGHIJKL'.split('').map(g => {
+    const row = liveData.standings[g][2];
+    return { group: g, pts: row.pts, gd: row.gd, gf: row.gf, code: row.code };
+  }).sort((a, b) =>
+    b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.code.localeCompare(b.code)
+  );
+  return thirds.slice(0, 8).map(t => t.group).sort().join('');
+}
+
+function resolveThirdPlaceSlot(winnerGroup, slotLabel) {
+  const key = getAdvancingThirdGroupsKey();
+  if (!key) {
+    return { code: null, known: false, clinched: false, label: 'Best 3rd (' + slotLabel.replace(/^3/, '') + ')' };
+  }
+  const srcGroup = ANNEX_C_LOOKUP[key]?.[winnerGroup];
+  if (!srcGroup) {
+    return { code: null, known: false, clinched: false, label: 'Best 3rd (' + slotLabel.replace(/^3/, '') + ')' };
+  }
+  const team = getKnownGroupTeam(srcGroup, 3);
+  if (team.known) {
+    return { ...team, label: TEAM_MAP[team.code]?.name || team.code };
+  }
+  return { code: null, known: false, clinched: false, label: '3rd Gr. ' + srcGroup };
+}
+
+function resolveWinnerSlot(matchId) {
+  const m = MATCHES.find(x => x.id === matchId);
+  if (!m || !Array.isArray(m.score)) return { code: null, known: false, clinched: false, label: 'W' + matchId };
+  const [hs, as_] = m.score;
+  if (hs === as_) return { code: null, known: false, clinched: false, label: 'W' + matchId };
+  const side = hs > as_ ? 'home' : 'away';
+  const resolved = resolveMatchSide(m, side);
+  if (resolved.known) return { ...resolved, clinched: true };
+  return { code: null, known: false, clinched: false, label: 'W' + matchId };
+}
+
+function resolveLoserSlot(matchId) {
+  const m = MATCHES.find(x => x.id === matchId);
+  if (!m || !Array.isArray(m.score)) return { code: null, known: false, clinched: false, label: 'L' + matchId };
+  const [hs, as_] = m.score;
+  if (hs === as_) return { code: null, known: false, clinched: false, label: 'L' + matchId };
+  const side = hs > as_ ? 'away' : 'home';
+  const resolved = resolveMatchSide(m, side);
+  if (resolved.known) return { ...resolved, clinched: true };
+  return { code: null, known: false, clinched: false, label: 'L' + matchId };
+}
+
+function resolveMatchSide(match, side) {
+  const slot = match[side];
+  const cacheKey = match.id + ':' + side + ':' + slot;
+  if (bracketResolveCache[cacheKey]) return bracketResolveCache[cacheKey];
+
+  let result;
+  const pos = slot.match(/^([12])([A-L])$/);
+  if (pos) {
+    const rank = parseInt(pos[1], 10);
+    const grp = pos[2];
+    const team = getKnownGroupTeam(grp, rank);
+    result = team.known
+      ? { code: team.code, known: true, clinched: team.clinched, label: TEAM_MAP[team.code].name }
+      : { code: null, known: false, clinched: false, label: (rank === 1 ? '1st' : '2nd') + ' Gr. ' + grp };
+  } else if (/^3/.test(slot)) {
+    const winnerGroup = (match.home.match(/^1([A-L])$/) || [])[1]
+      || (match.away.match(/^1([A-L])$/) || [])[1];
+    result = winnerGroup
+      ? resolveThirdPlaceSlot(winnerGroup, slot)
+      : { code: null, known: false, clinched: false, label: slot };
+  } else if (/^W\d+$/.test(slot)) {
+    result = resolveWinnerSlot(parseInt(slot.slice(1), 10));
+  } else if (/^L\d+$/.test(slot)) {
+    result = resolveLoserSlot(parseInt(slot.slice(1), 10));
+  } else if (TEAM_MAP[slot]) {
+    result = { code: slot, known: true, clinched: false, label: TEAM_MAP[slot].name };
+  } else {
+    result = { code: null, known: false, clinched: false, label: slot };
+  }
+
+  bracketResolveCache[cacheKey] = result;
+  return result;
+}
+
+function formatBracketTeam(resolved) {
+  if (resolved.known && resolved.code && TEAM_MAP[resolved.code]) {
+    const cls = resolved.clinched ? 'known clinched' : 'known';
+    return `<div class="bm-team ${cls}">${flagImg(TEAM_MAP[resolved.code].iso, 20)} ${resolved.label}</div>`;
+  }
+  return `<div class="bm-team tbd">${resolved.label}</div>`;
+}
+
+function refreshBracketOverlayIfOpen() {
+  const overlay = document.getElementById('overlay');
+  const content = document.getElementById('overlay-content');
+  if (overlay?.classList.contains('visible') && content?.querySelector('.bracket-container')) {
+    renderBracket(content);
+  }
+}
 /* ================================================================
    BOOKMAKER ODDS ENGINE (The Odds API — free tier, 500 req/month)
    Register free at the-odds-api.com — no credit card required.
@@ -2640,6 +2872,7 @@ function updateDisplay() {
   document.getElementById('center-subtitle').textContent = subtitle;
   renderGroupStandings(standingsGroup);
   renderMatchCards(matches);
+  refreshBracketOverlayIfOpen();
 }
 
 /* ================================================================
@@ -2931,6 +3164,7 @@ function renderWorldMap(container) {
 }
 
 function renderBracket(container) {
+  clearBracketCache();
   const koMatches = MATCHES.filter(m => m.isKnockout);
   const rounds = {
     'Round of 32': koMatches.filter(m => m.stage === 'Round of 32'),
@@ -2940,23 +3174,29 @@ function renderBracket(container) {
     'Final': koMatches.filter(m => m.stage === 'Final' || m.stage === 'Third Place')
   };
 
+  let knownCount = 0;
+  let totalSlots = 0;
+
   let html = '<div class="map-container"><h2>Tournament Bracket</h2>';
+  html += '<div class="bracket-legend"><span class="dot-known">&#9679; Confirmed</span><span class="dot-tbd">TBD until clinched</span></div>';
   html += '<div class="bracket-container">';
 
   Object.entries(rounds).forEach(([name, matches]) => {
     html += `<div class="bracket-round">
       <div class="bracket-round-title">${name}</div>`;
     matches.forEach(m => {
-      const hTeam = TEAM_MAP[m.home];
-      const aTeam = TEAM_MAP[m.away];
-      const hName = hTeam ? `${flagImg(hTeam.iso, 20)} ${hTeam.name}` : m.home;
-      const aName = aTeam ? `${flagImg(aTeam.iso, 20)} ${aTeam.name}` : m.away;
+      const hRes = resolveMatchSide(m, 'home');
+      const aRes = resolveMatchSide(m, 'away');
+      totalSlots += 2;
+      if (hRes.known) knownCount++;
+      if (aRes.known) knownCount++;
       const stad = STADIUM_MAP[m.stadium];
-      html += `<div class="bracket-match">
-        <div class="bm-team">${hName}</div>
-        <div style="font-size:8px;opacity:0.5;margin:2px 0">${m.stage === 'Third Place' ? '3RD' : 'vs'}</div>
-        <div class="bm-team">${aName}</div>
-        <div style="font-size:7px;opacity:0.4;margin-top:3px">${m.date.slice(5)} \u2022 ${stad ? stad.city : ''}</div>
+      const matchCls = (hRes.known || aRes.known) ? ' has-known' : '';
+      html += `<div class="bracket-match${matchCls}">
+        ${formatBracketTeam(hRes)}
+        <div class="bm-divider">${m.stage === 'Third Place' ? '— 3RD —' : 'vs'}</div>
+        ${formatBracketTeam(aRes)}
+        <div class="bm-meta">M${m.id} · ${m.date.slice(5)} · ${stad ? stad.city : ''}</div>
       </div>`;
     });
     html += '</div>';
@@ -2965,10 +3205,11 @@ function renderBracket(container) {
     }
   });
 
-  html += '</div></div>';
+  html += '</div>';
+  html += `<div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:12px;letter-spacing:1px">${knownCount} of ${totalSlots} slots confirmed • updates live with standings</div>`;
+  html += '</div>';
   container.innerHTML = html;
 }
-
 /* ================================================================
    CREDITS
    ================================================================ */
