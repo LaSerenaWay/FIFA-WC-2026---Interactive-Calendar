@@ -734,6 +734,39 @@ body {
   margin-top: 28px;
 }
 
+/* ===== BRACKET TREE (two-sided tournament layout) ===== */
+.btm {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  padding: 5px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.btm.btm-k    { border-color: rgba(201,168,76,0.32); background: rgba(255,255,255,0.09); }
+.btm.btm-final { border: 2px solid var(--gold); background: rgba(201,168,76,0.1); }
+.btm.btm-live  { border-color: var(--highlight); }
+.btm-team {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 0; font-size: 12px; font-family: 'Barlow Condensed', sans-serif;
+  white-space: nowrap; overflow: hidden; color: var(--text-light);
+}
+.btm-team img  { width: 15px; height: auto; border-radius: 1px; flex-shrink: 0; }
+.btm-team span { overflow: hidden; text-overflow: ellipsis; }
+.btm-gold  { color: var(--gold-bright) !important; font-weight: 700; }
+.btm-proj  { opacity: 0.7; font-style: italic; }
+.btm-tbd   { color: rgba(255,255,255,0.35) !important; font-size: 10.5px !important; font-style: italic; }
+.btm-win   { font-weight: 700; }
+.btm-lose  { opacity: 0.48; }
+.btm-info  {
+  font-size: 8.5px; color: rgba(255,255,255,0.32);
+  margin-top: 3px; text-align: center; letter-spacing: 0.3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* ===== WORLD MAP ===== */
 .map-container {
   text-align: center;
@@ -2218,7 +2251,7 @@ function formatBracketTeam(resolved) {
 function refreshBracketOverlayIfOpen() {
   const overlay = document.getElementById('overlay');
   const content = document.getElementById('overlay-content');
-  if (overlay?.classList.contains('visible') && content?.querySelector('.bracket-container')) {
+  if (overlay?.classList.contains('visible') && content?.querySelector('.btm,[data-mid]')) {
     renderBracket(content);
   }
 }
@@ -3237,50 +3270,154 @@ function renderWorldMap(container) {
 
 function renderBracket(container) {
   clearBracketCache();
-  const koMatches = MATCHES.filter(m => m.isKnockout);
-  const rounds = {
-    'Round of 32': koMatches.filter(m => m.stage === 'Round of 32'),
-    'Round of 16': koMatches.filter(m => m.stage === 'Round of 16'),
-    'Quarterfinal': koMatches.filter(m => m.stage === 'Quarterfinal'),
-    'Semifinal': koMatches.filter(m => m.stage === 'Semifinal'),
-    'Final': koMatches.filter(m => m.stage === 'Final' || m.stage === 'Third Place')
-  };
 
-  let knownCount = 0;
-  let totalSlots = 0;
+  /* Layout constants */
+  const RH=68, CH=60, CW=95, GX=14;
+  const H   = 8*RH;                  // 544px total bracket height
+  const halfW = 4*CW + 3*GX;        // 422px per half
+  const cW  = CW + 20;              // 115px centre column
+  const W   = 2*halfW + cW;         // 959px total width
+  const rhB = halfW + cW;           // 537px — right half starts
+  const fx  = halfW + Math.round((cW-CW)/2); // 432px — final card x
 
-  let html = '<div class="map-container"><h2>Tournament Bracket</h2>';
-  html += '<div class="bracket-legend"><span class="dot-known">&#9679; Confirmed</span><span class="dot-tbd">TBD until clinched</span></div>';
-  html += '<div class="bracket-container">';
+  /* Vertical centres per round */
+  const yr32 = [0,1,2,3,4,5,6,7].map(i => i*RH + RH/2);
+  const yr16  = [0,1,2,3].map(i => (yr32[i*2]+yr32[i*2+1])/2);
+  const yqf   = [0,1].map(i => (yr16[i*2]+yr16[i*2+1])/2);
+  const ysf   = H/2; // 272
 
-  Object.entries(rounds).forEach(([name, matches]) => {
-    html += `<div class="bracket-round">
-      <div class="bracket-round-title">${name}</div>`;
-    matches.forEach(m => {
-      const hRes = resolveMatchSide(m, 'home');
-      const aRes = resolveMatchSide(m, 'away');
-      totalSlots += 2;
-      if (hRes.known) knownCount++;
-      if (aRes.known) knownCount++;
-      const stad = STADIUM_MAP[m.stadium];
-      const matchCls = (hRes.known || aRes.known) ? ' has-known' : '';
-      html += `<div class="bracket-match${matchCls}">
-        ${formatBracketTeam(hRes)}
-        <div class="bm-divider">${m.stage === 'Third Place' ? '— 3RD —' : 'vs'}</div>
-        ${formatBracketTeam(aRes)}
-        <div class="bm-meta">M${m.id} · ${m.date.slice(5)} · ${stad ? stad.city : ''}</div>
-      </div>`;
-    });
-    html += '</div>';
-    if (name !== 'Final') {
-      html += '<div class="bracket-connector"></div>';
+  const getM = id => MATCHES.find(m => m.id === id);
+
+  /* Single team row inside a bracket card */
+  function tRow(res, isW, isL) {
+    if (res.known && res.code && TEAM_MAP[res.code]) {
+      const t = TEAM_MAP[res.code];
+      const cls = 'btm-team'
+        + (res.clinched ? ' btm-gold' : res.projected ? ' btm-proj' : '')
+        + (isW ? ' btm-win' : '') + (isL ? ' btm-lose' : '');
+      return `<div class="${cls}">${flagImg(t.iso,15)}<span>${t.name}</span></div>`;
     }
-  });
+    return `<div class="btm-team btm-tbd">${res.label}</div>`;
+  }
 
-  html += '</div>';
-  html += `<div style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:12px;letter-spacing:1px">${knownCount} of ${totalSlots} slots confirmed • updates live with standings</div>`;
-  html += '</div>';
-  container.innerHTML = html;
+  /* Bracket match card */
+  function card(id, isFinal) {
+    const m = getM(id);
+    if (!m) return `<div class="btm" style="width:${CW}px;height:${CH}px"></div>`;
+    const hR=resolveMatchSide(m,'home'), aR=resolveMatchSide(m,'away');
+    const hs=Array.isArray(m.score);
+    const wn=hs?(m.score[0]>m.score[1]?'home':m.score[0]<m.score[1]?'away':null):null;
+    const stad=STADIUM_MAP[m.stadium];
+    const sc=hs?`${m.score[0]}\u2013${m.score[1]}`:m.date.slice(5);
+    const inf=hs?(m.statusLabel==='FT'?'FT':m.statusLabel||''):(stad?stad.city:'');
+    const cls='btm'
+      +((hR.known||aR.known)?' btm-k':'')
+      +(isFinal?' btm-final':'')
+      +(m.statusLabel==='LIVE'?' btm-live':'');
+    return `<div class="${cls}" data-mid="${id}" style="width:${CW}px;height:${CH}px">
+      ${tRow(hR,wn==='home',wn==='away')}${tRow(aR,wn==='away',wn==='home')}
+      <div class="btm-info">M${id} \u00b7 ${sc}${inf?' \u00b7 '+inf:''}</div>
+    </div>`;
+  }
+
+  /* Absolutely position a card centred at yc */
+  function at(id, x, yc, isFinal) {
+    return `<div style="position:absolute;left:${x}px;top:${Math.round(yc-CH/2)}px">${card(id,isFinal)}</div>`;
+  }
+
+  /* Bracket halves — top-half feeds SF M101, bottom-half feeds SF M102 */
+  const L = { r32:[73,75,74,78,84,83,82,81], r16:[89,90,93,94], qf:[97,98], sf:101 };
+  const R = { r32:[76,77,79,80,87,86,85,88], r16:[91,92,95,96], qf:[99,100], sf:102 };
+
+  const lx = k => k*(CW+GX);       // left-edge of left-half column k  (R32=0, SF=3)
+  const rx = k => rhB + k*(CW+GX); // left-edge of right-half column k (SF=0, R32=3)
+
+  /* Build card HTML */
+  let cards = '';
+  L.r32.forEach((id,i)=>{ cards+=at(id,lx(0),yr32[i]); });
+  L.r16.forEach((id,i)=>{ cards+=at(id,lx(1),yr16[i]); });
+  L.qf .forEach((id,i)=>{ cards+=at(id,lx(2),yqf[i]);  });
+  cards += at(L.sf, lx(3), ysf);
+
+  /* Centre: Final + 3rd Place */
+  cards += `<div style="position:absolute;left:${fx}px;top:${Math.round(ysf-CH/2-18)}px;width:${CW}px;text-align:center;font-family:'Oswald',sans-serif;font-size:9px;color:var(--gold);letter-spacing:2px">FINAL</div>`;
+  cards += at(104, fx, ysf, true);
+  cards += `<div style="position:absolute;left:${fx}px;top:${Math.round(ysf+CH/2+8)}px;width:${CW}px;text-align:center;font-family:'Oswald',sans-serif;font-size:8px;color:var(--text-muted);letter-spacing:1.5px">3RD PLACE</div>`;
+  cards += at(103, fx, ysf+CH+28);
+
+  R.sf  && (cards += at(R.sf,  rx(0), ysf));
+  R.qf .forEach((id,i)=>{ cards+=at(id,rx(1),yqf[i]);  });
+  R.r16.forEach((id,i)=>{ cards+=at(id,rx(2),yr16[i]); });
+  R.r32.forEach((id,i)=>{ cards+=at(id,rx(3),yr32[i]); });
+
+  /* SVG connector lines — bracket arms */
+  const rc = k => lx(k)+CW;  // right edge of left col k
+  const rr = k => rx(k)+CW;  // right edge of right col k
+
+  function arm(fromYs, toYs, fX, tX) {
+    const mX = (fX+tX)/2;
+    return toYs.map((yt,i) => {
+      const y1=fromYs[i*2], y2=fromYs[i*2+1];
+      return `<line x1="${fX}" y1="${y1}" x2="${mX}" y2="${y1}"/>`
+           + `<line x1="${mX}" y1="${y1}" x2="${mX}" y2="${y2}"/>`
+           + `<line x1="${fX}" y1="${y2}" x2="${mX}" y2="${y2}"/>`
+           + `<line x1="${mX}" y1="${yt}" x2="${tX}" y2="${yt}"/>`;
+    }).join('');
+  }
+
+  const svgLines = [
+    /* Left half — connectors point right (R32 → SF) */
+    arm(yr32,yr16, rc(0),lx(1)),
+    arm(yr16,yqf,  rc(1),lx(2)),
+    arm(yqf,[ysf], rc(2),lx(3)),
+    `<line x1="${rc(3)}" y1="${ysf}" x2="${fx}" y2="${ysf}"/>`,
+    /* Right half — connectors point left (R32 → SF) */
+    arm(yr32,yr16, rx(3),rr(2)),
+    arm(yr16,yqf,  rx(2),rr(1)),
+    arm(yqf,[ysf], rx(1),rr(0)),
+    `<line x1="${rx(0)}" y1="${ysf}" x2="${fx+CW}" y2="${ysf}"/>`,
+  ].join('');
+
+  /* Round-label header row */
+  const hs = 'font-family:"Oswald",sans-serif;font-size:10px;color:var(--gold);text-align:center;letter-spacing:2px;text-transform:uppercase;flex:1';
+  const halfHdrs = lbls => lbls.map(t=>`<div style="${hs}">${t}</div>`).join('');
+  const hdrHtml = `<div style="display:flex;min-width:${W}px;margin-bottom:8px;align-items:flex-end;">
+    <div style="width:${halfW}px;flex-shrink:0;display:flex;">${halfHdrs(['Round of 32','Round of 16','Quarterfinal','Semifinal'])}</div>
+    <div style="width:${cW}px;flex-shrink:0;font-family:'Oswald',sans-serif;font-size:10px;color:var(--gold);text-align:center;letter-spacing:2px;text-transform:uppercase">FINAL</div>
+    <div style="width:${halfW}px;flex-shrink:0;display:flex;">${halfHdrs(['Semifinal','Quarterfinal','Round of 16','Round of 32'])}</div>
+  </div>`;
+
+  /* Count known slots for footer */
+  let known=0, total=0;
+  [L.r32,L.r16,L.qf,[L.sf],R.r32,R.r16,R.qf,[R.sf],[104],[103]].forEach(arr =>
+    arr.forEach(id => {
+      const m=getM(id); if(!m) return;
+      ['home','away'].forEach(s => { total++; if(resolveMatchSide(m,s).known) known++; });
+    })
+  );
+
+  container.innerHTML = `
+    <div style="padding:16px 8px;">
+      <h2 style="font-family:'Oswald',sans-serif;color:var(--gold);text-align:center;letter-spacing:4px;margin-bottom:12px;font-size:clamp(16px,2vw,24px)">TOURNAMENT BRACKET</h2>
+      <div class="bracket-legend" style="margin-bottom:14px">
+        <span class="dot-known">&#9679;&nbsp;Confirmed</span>
+        <span class="dot-tbd">&#9675;&nbsp;Projected</span>
+      </div>
+      <div style="overflow-x:auto;overflow-y:visible;padding-bottom:16px;">
+        ${hdrHtml}
+        <div style="position:relative;width:${W}px;height:${H}px;">
+          <svg style="position:absolute;top:0;left:0;overflow:visible;" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+            <g stroke="rgba(201,168,76,0.38)" stroke-width="1" fill="none" stroke-linecap="round">
+              ${svgLines}
+            </g>
+          </svg>
+          ${cards}
+        </div>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:12px;letter-spacing:1px">
+        ${known} of ${total} slots confirmed &bull; updates live with standings &bull; Third-place routing via FIFA Annex&nbsp;C
+      </div>
+    </div>`;
 }
 /* ================================================================
    CREDITS
