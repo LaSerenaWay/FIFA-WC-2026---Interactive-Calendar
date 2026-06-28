@@ -1864,7 +1864,15 @@ async function fetchHistoricalScores() {
     );
   }
   const results = await Promise.all(fetches);
-  results.forEach(data => { if (data) processScoreboard(data); });
+  // Process group stage days first so standings are ready before knockout days run.
+  // Sort results chronologically (oldest first) so group results precede R32 etc.
+  const dated = results.map((data, i) => ({ data, daysBack: i + 1 }))
+    .filter(x => x.data)
+    .sort((a, b) => b.daysBack - a.daysBack); // oldest day first
+  for (const { data } of dated) {
+    processScoreboard(data);
+    computeLocalStandings(); // keep standings current for each successive day
+  }
 }
 
 // ESPN team abbreviation -> our team codes (common mismatches)
@@ -1915,6 +1923,11 @@ async function fetchLiveData() {
 
   // Reset live flag before processing today's scoreboard
   liveData.isLive = false;
+
+  // Pre-compute standings so knockout slot resolution works inside processScoreboard.
+  // (Standings may already be set from the historical-fetch callback, but ensuring they
+  //  exist before the live fetch means RSA/CAN etc. resolve from '2A'/'2B' correctly.)
+  computeLocalStandings();
 
   // During the tournament: fetch live scores from ESPN
   try {
@@ -1983,9 +1996,20 @@ function processScoreboard(data) {
     if (hScore < 0 || aScore < 0) return;
 
     // Find our matching 2026 fixture.
-    // No kickoff-time guard: ESPN only returns scores for live/finished matches,
-    // so there is no risk of picking up scores for future games.
-    const match = MATCHES.find(m => m.home === hCode && m.away === aCode);
+    // Group stage: m.home / m.away are real team codes (e.g. 'MEX', 'RSA').
+    // Knockout rounds: m.home / m.away are placeholders ('2A', '1C', 'W73'…).
+    // Try direct lookup first, then resolve knockout slots via the bracket engine.
+    let match = MATCHES.find(m => m.home === hCode && m.away === aCode);
+
+    if (!match) {
+      // Fallback: scan knockout matches and resolve slots to real team codes.
+      match = MATCHES.find(m => {
+        if (!m.isKnockout || Array.isArray(m.score)) return false;
+        const hR = resolveMatchSide(m, 'home');
+        const aR = resolveMatchSide(m, 'away');
+        return hR.known && aR.known && hR.code === hCode && aR.code === aCode;
+      });
+    }
 
     if (match) {
       match.score = [hScore, aScore];
@@ -1995,6 +2019,9 @@ function processScoreboard(data) {
 
       // Persist final scores to localStorage so they survive page reloads
       if (isFinal) saveToScoreCache(match.home, match.away, [hScore, aScore]);
+
+      // A knockout score changes who advances — invalidate the bracket resolution cache
+      if (match.isKnockout) clearBracketCache();
     }
   });
 }
