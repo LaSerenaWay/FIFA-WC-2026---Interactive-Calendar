@@ -3295,7 +3295,7 @@ function renderBracket(container) {
       const cls = 'btm-team'
         + (res.clinched ? ' btm-gold' : res.projected ? ' btm-proj' : '')
         + (isW ? ' btm-win' : '') + (isL ? ' btm-lose' : '');
-      return `<div class="${cls}">${flagImg(t.iso,15)}<span>${t.name}</span></div>`;
+      return `<div class="${cls}"><img src="https://flagcdn.com/w20/${t.iso}.png" alt="" width="16" style="height:auto;border-radius:1px;flex-shrink:0;vertical-align:middle;margin-right:2px" loading="eager"><span>${t.name}</span></div>`;
     }
     return `<div class="btm-team btm-tbd">${res.label}</div>`;
   }
