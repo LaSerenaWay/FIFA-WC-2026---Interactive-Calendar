@@ -644,11 +644,19 @@ body {
 #overlay-close:hover { background: rgba(255,255,255,0.1); border-color: var(--gold); color: var(--gold); }
 
 #overlay-content {
-  width: 85%;
-  max-width: 1000px;
-  max-height: 80vh;
-  overflow-y: auto;
+  width: 95%;
+  max-width: 1200px;
+  max-height: 92vh;
+  overflow: hidden;
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+/* Bracket overlay gets extra space */
+#overlay-content.bracket-mode {
+  overflow: hidden;
+  padding: 12px 16px;
 }
 
 /* ===== BRACKET VIEW ===== */
@@ -2280,6 +2288,7 @@ function refreshBracketOverlayIfOpen() {
   const content = document.getElementById('overlay-content');
   if (overlay?.classList.contains('visible') && content?.querySelector('.btm,[data-mid]')) {
     renderBracket(content);
+    fitBracketToOverlay();
   }
 }
 /* ================================================================
@@ -3058,14 +3067,47 @@ function showOverlay(type) {
   const overlay = document.getElementById('overlay');
   const content = document.getElementById('overlay-content');
   overlay.classList.add('visible');
+  content.classList.toggle('bracket-mode', type === 'bracket');
+  // Restore scroll for non-bracket overlays
+  content.style.overflow = (type === 'bracket') ? 'hidden' : 'auto';
 
   if (type === 'map') {
     renderWorldMap(content);
   } else if (type === 'bracket') {
     renderBracket(content);
+    fitBracketToOverlay();
   } else if (type === 'credits') {
     renderCredits(content);
   }
+}
+
+function fitBracketToOverlay() {
+  const content = document.getElementById('overlay-content');
+  const inner   = document.getElementById('btree-fit');
+  if (!content || !inner) return;
+
+  // Reset any previous transform so we measure the natural layout size
+  inner.style.transform = '';
+  inner.style.width     = '';
+  inner.style.height    = '';
+
+  requestAnimationFrame(() => {
+    const availW = content.clientWidth  - 24; // subtract left+right padding
+    const availH = content.clientHeight - 24;
+    const natW   = inner.scrollWidth;
+    const natH   = inner.scrollHeight;
+    if (!natW || !natH) return;
+
+    const scale = Math.min(availW / natW, availH / natH, 1);
+
+    inner.style.transform       = `scale(${scale.toFixed(4)})`;
+    inner.style.transformOrigin = 'top center';
+    // Collapse the layout height to the visually occupied space
+    // so the overlay does not show empty space below
+    inner.style.height          = `${Math.ceil(natH * scale)}px`;
+    inner.style.width           = `${natW}px`;
+    inner.style.overflow        = 'visible';
+  });
 }
 
 function hideOverlay() {
@@ -3426,25 +3468,23 @@ function renderBracket(container) {
   );
 
   container.innerHTML = `
-    <div style="padding:16px 8px;">
-      <h2 style="font-family:'Oswald',sans-serif;color:var(--gold);text-align:center;letter-spacing:4px;margin-bottom:12px;font-size:clamp(16px,2vw,24px)">TOURNAMENT BRACKET</h2>
-      <div class="bracket-legend" style="margin-bottom:14px">
+    <div id="btree-fit" style="display:inline-block;">
+      <h2 style="font-family:'Oswald',sans-serif;color:var(--gold);text-align:center;letter-spacing:4px;margin-bottom:10px;font-size:18px">TOURNAMENT BRACKET</h2>
+      <div class="bracket-legend" style="margin-bottom:10px">
         <span class="dot-known">&#9679;&nbsp;Confirmed</span>
         <span class="dot-tbd">&#9675;&nbsp;Projected</span>
       </div>
-      <div style="overflow-x:auto;overflow-y:visible;padding-bottom:16px;">
-        ${hdrHtml}
-        <div style="position:relative;width:${W}px;height:${H}px;">
-          <svg style="position:absolute;top:0;left:0;overflow:visible;" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-            <g stroke="rgba(201,168,76,0.38)" stroke-width="1" fill="none" stroke-linecap="round">
-              ${svgLines}
-            </g>
-          </svg>
-          ${cards}
-        </div>
+      ${hdrHtml}
+      <div style="position:relative;width:${W}px;height:${H}px;">
+        <svg style="position:absolute;top:0;left:0;overflow:visible;" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+          <g stroke="rgba(201,168,76,0.38)" stroke-width="1" fill="none" stroke-linecap="round">
+            ${svgLines}
+          </g>
+        </svg>
+        ${cards}
       </div>
-      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:12px;letter-spacing:1px">
-        ${known} of ${total} slots confirmed &bull; updates live with standings &bull; Third-place routing via FIFA Annex&nbsp;C
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:10px;letter-spacing:1px">
+        ${known} of ${total} slots confirmed &bull; updates live with standings
       </div>
     </div>`;
 }
@@ -3597,6 +3637,7 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('resize', () => {
   renderGroupDots();
+  fitBracketToOverlay();
 });
 
 </script>
