@@ -2046,16 +2046,21 @@ function processScoreboard(data) {
     let match = MATCHES.find(m => m.home === hCode && m.away === aCode);
 
     if (!match) {
-      // Fallback: scan knockout matches and resolve slots to real team codes.
-      // Each call is wrapped so a slot resolution error never blocks other events.
-      try {
-        match = MATCHES.find(m => {
-          if (!m.isKnockout || Array.isArray(m.score)) return false;
-          const hR = resolveMatchSide(m, 'home');
-          const aR = resolveMatchSide(m, 'away');
-          return hR.known && aR.known && hR.code === hCode && aR.code === aCode;
-        });
-      } catch(e) { match = null; }
+      // Knockout fallback: match by kickoff date + time (±90 min window).
+      // Every KO match has a unique timeslot so this is unambiguous —
+      // no need to resolve placeholder slots at all.
+      const evDate = ev.date ? new Date(ev.date) : null;
+      if (evDate) {
+        const ko = MATCHES.filter(m => m.isKnockout && !Array.isArray(m.score));
+        for (const m of ko) {
+          // Match times are stored as US Eastern (UTC-4 during the tournament)
+          const kickoff = new Date(m.date + 'T' + m.time + ':00-04:00');
+          if (Math.abs(evDate - kickoff) < 5400000) { // within 90 minutes
+            match = m;
+            break;
+          }
+        }
+      }
     }
 
     if (match) {
