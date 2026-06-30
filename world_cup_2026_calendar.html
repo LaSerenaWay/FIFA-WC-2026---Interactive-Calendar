@@ -1850,8 +1850,12 @@ function restoreScoresFromCache() {
   MATCHES.forEach(m => {
     const saved = cache[m.home + '_' + m.away];
     if (saved && !Array.isArray(m.score)) {
-      m.score = saved;
+      m.score = [saved[0], saved[1]];
       m.statusLabel = 'FT';
+      // Restore penalty shootout winner (stored as 3rd element)
+      if (m.isKnockout && saved[2] && TEAM_MAP[saved[2]]) {
+        m.koWinner = saved[2];
+      }
     }
   });
 }
@@ -2069,8 +2073,14 @@ function processScoreboard(data) {
       match.clock = clock;
       if (isLive) liveData.isLive = true;
 
-      // Persist final scores to localStorage so they survive page reloads
-      if (isFinal) saveToScoreCache(match.home, match.away, [hScore, aScore]);
+      // Persist final scores to localStorage so they survive page reloads.
+      // For penalty shootouts (equal score) we store a 3rd element: the winner code.
+      if (isFinal) {
+        const cacheScore = (hScore === aScore && match.isKnockout)
+          ? [hScore, aScore, home.winner === true ? hCode : aCode]
+          : [hScore, aScore];
+        saveToScoreCache(match.home, match.away, cacheScore);
+      }
 
       // For knockout matches: stamp the ACTUAL team codes from ESPN directly onto the
       // match object. resolveWinnerSlot reads these first so Morocco/Paraguay/etc.
@@ -2078,6 +2088,13 @@ function processScoreboard(data) {
       if (match.isKnockout) {
         match.homeTeamCode = hCode;
         match.awayTeamCode = aCode;
+        // Penalty shootout: score is a draw but ESPN marks the winner explicitly.
+        // Store the winning team code so resolveWinnerSlot can identify the winner.
+        if (hScore === aScore) {
+          const homeWon = home.winner === true;
+          const awayWon = away.winner === true;
+          match.koWinner = homeWon ? hCode : awayWon ? aCode : null;
+        }
         clearBracketCache();
       }
     }
@@ -2278,13 +2295,18 @@ function resolveWinnerSlot(matchId) {
   const m = MATCHES.find(x => x.id === matchId);
   if (!m || !Array.isArray(m.score)) return { code: null, known: false, clinched: false, label: 'W' + matchId };
   const [hs, as_] = m.score;
-  if (hs === as_) return { code: null, known: false, clinched: false, label: 'W' + matchId };
-  // Use the team code stamped directly from ESPN — works even without standings
+  // Penalty shootout — score is a draw but koWinner is set
+  if (hs === as_) {
+    const code = m.koWinner;
+    if (code && TEAM_MAP[code]) return { code, known: true, clinched: true, projected: false, label: TEAM_MAP[code].name };
+    return { code: null, known: false, clinched: false, label: 'W' + matchId };
+  }
+  // Normal win — use ESPN-stamped team code first
   const directCode = hs > as_ ? m.homeTeamCode : m.awayTeamCode;
   if (directCode && TEAM_MAP[directCode]) {
     return { code: directCode, known: true, clinched: true, projected: false, label: TEAM_MAP[directCode].name };
   }
-  // Fallback: resolve the winner's slot (works when standings are available)
+  // Fallback: slot resolution
   const side = hs > as_ ? 'home' : 'away';
   try {
     const resolved = resolveMatchSide(m, side);
@@ -2301,7 +2323,16 @@ function resolveLoserSlot(matchId) {
   const m = MATCHES.find(x => x.id === matchId);
   if (!m || !Array.isArray(m.score)) return { code: null, known: false, clinched: false, label: 'L' + matchId };
   const [hs, as_] = m.score;
-  if (hs === as_) return { code: null, known: false, clinched: false, label: 'L' + matchId };
+  // Penalty shootout — loser is whoever is NOT the koWinner
+  if (hs === as_) {
+    const winCode = m.koWinner;
+    if (winCode) {
+      const loseCode = winCode === m.homeTeamCode ? m.awayTeamCode : m.homeTeamCode;
+      if (loseCode && TEAM_MAP[loseCode]) return { code: loseCode, known: true, clinched: true, projected: false, label: TEAM_MAP[loseCode].name };
+    }
+    return { code: null, known: false, clinched: false, label: 'L' + matchId };
+  }
+  // Normal win — loser is the other side
   const directCode = hs > as_ ? m.awayTeamCode : m.homeTeamCode;
   if (directCode && TEAM_MAP[directCode]) {
     return { code: directCode, known: true, clinched: true, projected: false, label: TEAM_MAP[directCode].name };
@@ -2879,7 +2910,10 @@ function renderMatchCards(matches) {
     const dateLabel = `${monthNames[matchDate.getMonth()]} ${matchDate.getDate()}`;
 
     let statusBadge = '';
-    if (statusLabel === 'FT')   statusBadge = '<span class="match-status-badge ft">FT</span>';
+    if (statusLabel === 'FT') {
+      const isPens = m.isKnockout && m.koWinner && Array.isArray(m.score) && m.score[0] === m.score[1];
+      statusBadge = `<span class="match-status-badge ft">${isPens ? 'PENS' : 'FT'}</span>`;
+    }
     else if (statusLabel === 'HT')   statusBadge = '<span class="match-status-badge ht">HT</span>';
     else if (statusLabel === 'LIVE') statusBadge = `<span class="match-status-badge live">${clockStr || 'LIVE'}</span>`;
 
