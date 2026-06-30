@@ -1888,23 +1888,58 @@ const ESPN_CODE_MAP = {
   'SKOA': 'KOR', 'CRC':  'CRI', 'USA':  'USA', 'RSA':  'RSA',
   'MEX':  'MEX', 'BRA':  'BRA', 'ARG':  'ARG', 'ENG':  'ENG',
   'FRA':  'FRA', 'GER':  'GER', 'ESP':  'ESP', 'POR':  'POR',
-  'NED':  'NED', 'BEL':  'BEL', 'CRO':  'CRO', 'URU':  'URU',
+  'NED':  'NED', 'HOL':  'NED', 'NETH': 'NED', 'NLD':  'NED',
+  'BEL':  'BEL', 'CRO':  'CRO', 'URU':  'URU',
   'JAP':  'JPN', 'JPN':  'JPN', 'AUS':  'AUS', 'IRN':  'IRN',
-  'SEN':  'SEN', 'MAR':  'MAR', 'GHA':  'GHA', 'TUN':  'TUN',
-  'CAM':  'CMR', 'NGA':  'NGA', 'EGY':  'EGY', 'COD':  'COD',
-  'DRC':  'COD', 'COL':  'COL', 'PAR':  'PAR', 'CHI':  'CHI',
-  'CUR':  'CUW', 'CUW':  'CUW', 'CPV':  'CPV', 'SUI':  'SUI',
-  'NOR':  'NOR', 'SWE':  'SWE', 'DEN':  'DEN', 'SCO':  'SCO',
-  'TUR':  'TUR', 'CZE':  'CZE', 'BIH':  'BIH', 'AUT':  'AUT',
-  'QAT':  'QAT', 'KSA':  'KSA', 'IRQ':  'IRQ', 'JOR':  'JOR',
-  'UZB':  'UZB', 'JAM':  'JAM', 'PAN':  'PAN', 'HAI':  'HAI',
-  'NZL':  'NZL', 'CAN':  'CAN', 'HND':  'HON', 'ECU':  'ECU'
+  'SEN':  'SEN', 'MAR':  'MAR', 'MOR':  'MAR', 'GHA':  'GHA',
+  'TUN':  'TUN', 'CAM':  'CMR', 'NGA':  'NGA', 'EGY':  'EGY',
+  'COD':  'COD', 'DRC':  'COD', 'COL':  'COL', 'PAR':  'PAR',
+  'CHI':  'CHI', 'CUR':  'CUW', 'CUW':  'CUW', 'CPV':  'CPV',
+  'SUI':  'SUI', 'NOR':  'NOR', 'SWE':  'SWE', 'DEN':  'DEN',
+  'SCO':  'SCO', 'TUR':  'TUR', 'CZE':  'CZE', 'BIH':  'BIH',
+  'AUT':  'AUT', 'QAT':  'QAT', 'KSA':  'KSA', 'IRQ':  'IRQ',
+  'JOR':  'JOR', 'UZB':  'UZB', 'JAM':  'JAM', 'PAN':  'PAN',
+  'HAI':  'HAI', 'NZL':  'NZL', 'CAN':  'CAN', 'HND':  'HON',
+  'ECU':  'ECU', 'ALG':  'ALG', 'DZA':  'ALG', 'PRY':  'PAR',
+  'COD2': 'COD', 'SEN2': 'SEN', 'IRI':  'IRN', 'IRQ2': 'IRQ'
 };
 
-function resolveEspnCode(abbr) {
-  if (!abbr) return null;
-  const up = abbr.toUpperCase();
-  return ESPN_CODE_MAP[up] || (TEAM_MAP[up] ? up : null);
+// ESPN name→our code map for display-name fallback
+const ESPN_NAME_MAP = (() => {
+  const m = {};
+  TEAMS.forEach(t => { m[t.name.toLowerCase()] = t.code; });
+  // common aliases
+  m['netherlands'] = 'NED'; m['holland'] = 'NED';
+  m['morocco'] = 'MAR'; m['maroc'] = 'MAR';
+  m['ivory coast'] = 'CIV'; m["cote d'ivoire"] = 'CIV'; m['côte d\'ivoire'] = 'CIV';
+  m['dr congo'] = 'COD'; m['congo dr'] = 'COD'; m['democratic republic of congo'] = 'COD';
+  m['south korea'] = 'KOR'; m['korea republic'] = 'KOR';
+  m['cape verde'] = 'CPV'; m['cape verde islands'] = 'CPV';
+  m['saudi arabia'] = 'KSA'; m['new zealand'] = 'NZL';
+  m['curacao'] = 'CUW'; m['curaçao'] = 'CUW';
+  m['czech republic'] = 'CZE'; m['czechia'] = 'CZE';
+  m['bosnia and herzegovina'] = 'BIH'; m['bosnia & herzegovina'] = 'BIH';
+  m['united states'] = 'USA'; m['usa'] = 'USA';
+  return m;
+})();
+
+function resolveEspnCode(abbr, displayName) {
+  if (!abbr && !displayName) return null;
+  if (abbr) {
+    const up = abbr.toUpperCase();
+    const byCode = ESPN_CODE_MAP[up] || (TEAM_MAP[up] ? up : null);
+    if (byCode) return byCode;
+  }
+  // Fallback: try the team's display/full name
+  if (displayName) {
+    const key = displayName.toLowerCase().trim();
+    if (ESPN_NAME_MAP[key]) return ESPN_NAME_MAP[key];
+    // partial match — team name contained in display name
+    for (const [name, code] of Object.entries(ESPN_NAME_MAP)) {
+      if (key === name || key.includes(name) || name.includes(key)) return code;
+    }
+  }
+  return null;
 }
 
 async function fetchLiveData() {
@@ -1973,6 +2008,7 @@ function processScoreboard(data) {
 
   const events = data.events || [];
   events.forEach(ev => {
+    try { // wrap each event so one failure never stops subsequent events
     // Validate event date falls within the tournament
     const evDate = ev.date ? new Date(ev.date) : null;
     if (evDate && (evDate < TOURNAMENT_START || evDate > TOURNAMENT_END)) return;
@@ -1984,8 +2020,8 @@ function processScoreboard(data) {
     const away = competitors.find(c => c.homeAway === 'away');
     if (!home || !away) return;
 
-    const hCode = resolveEspnCode(home.team?.abbreviation);
-    const aCode = resolveEspnCode(away.team?.abbreviation);
+    const hCode = resolveEspnCode(home.team?.abbreviation, home.team?.displayName || home.team?.name);
+    const aCode = resolveEspnCode(away.team?.abbreviation, away.team?.displayName || away.team?.name);
     if (!hCode || !aCode) return;
 
     const stateStr = comp.status?.type?.state || '';
@@ -2011,12 +2047,15 @@ function processScoreboard(data) {
 
     if (!match) {
       // Fallback: scan knockout matches and resolve slots to real team codes.
-      match = MATCHES.find(m => {
-        if (!m.isKnockout || Array.isArray(m.score)) return false;
-        const hR = resolveMatchSide(m, 'home');
-        const aR = resolveMatchSide(m, 'away');
-        return hR.known && aR.known && hR.code === hCode && aR.code === aCode;
-      });
+      // Each call is wrapped so a slot resolution error never blocks other events.
+      try {
+        match = MATCHES.find(m => {
+          if (!m.isKnockout || Array.isArray(m.score)) return false;
+          const hR = resolveMatchSide(m, 'home');
+          const aR = resolveMatchSide(m, 'away');
+          return hR.known && aR.known && hR.code === hCode && aR.code === aCode;
+        });
+      } catch(e) { match = null; }
     }
 
     if (match) {
@@ -2031,6 +2070,7 @@ function processScoreboard(data) {
       // A knockout score changes who advances — invalidate the bracket resolution cache
       if (match.isKnockout) clearBracketCache();
     }
+    } catch(e) { /* per-event guard: log nothing, never let one bad event kill the loop */ }
   });
 }
 
@@ -2170,13 +2210,17 @@ function getKnownGroupTeam(grp, rank) {
 
 function getAdvancingThirdGroupsKey() {
   if (!'ABCDEFGHIJKL'.split('').every(isGroupComplete)) return null;
-  const thirds = 'ABCDEFGHIJKL'.split('').map(g => {
-    const row = liveData.standings[g][2];
-    return { group: g, pts: row.pts, gd: row.gd, gf: row.gf, code: row.code };
-  }).sort((a, b) =>
-    b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.code.localeCompare(b.code)
-  );
-  return thirds.slice(0, 8).map(t => t.group).sort().join('');
+  try {
+    const thirds = 'ABCDEFGHIJKL'.split('').map(g => {
+      const rows = liveData.standings[g];
+      const row  = rows && rows[2];
+      if (!row) throw new Error('standings not ready');
+      return { group: g, pts: row.pts, gd: row.gd, gf: row.gf, code: row.code };
+    });
+    return thirds
+      .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.code.localeCompare(b.code))
+      .slice(0, 8).map(t => t.group).sort().join('');
+  } catch(e) { return null; }
 }
 
 function getProjectedThirdGroupsKey() {
