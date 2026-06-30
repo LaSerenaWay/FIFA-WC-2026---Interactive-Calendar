@@ -2072,8 +2072,14 @@ function processScoreboard(data) {
       // Persist final scores to localStorage so they survive page reloads
       if (isFinal) saveToScoreCache(match.home, match.away, [hScore, aScore]);
 
-      // A knockout score changes who advances — invalidate the bracket resolution cache
-      if (match.isKnockout) clearBracketCache();
+      // For knockout matches: stamp the ACTUAL team codes from ESPN directly onto the
+      // match object. resolveWinnerSlot reads these first so Morocco/Paraguay/etc.
+      // appear in the next round immediately — no standings or slot resolution needed.
+      if (match.isKnockout) {
+        match.homeTeamCode = hCode;
+        match.awayTeamCode = aCode;
+        clearBracketCache();
+      }
     }
     } catch(e) { /* per-event guard: log nothing, never let one bad event kill the loop */ }
   });
@@ -2273,9 +2279,21 @@ function resolveWinnerSlot(matchId) {
   if (!m || !Array.isArray(m.score)) return { code: null, known: false, clinched: false, label: 'W' + matchId };
   const [hs, as_] = m.score;
   if (hs === as_) return { code: null, known: false, clinched: false, label: 'W' + matchId };
+  // Use the team code stamped directly from ESPN — works even without standings
+  const directCode = hs > as_ ? m.homeTeamCode : m.awayTeamCode;
+  if (directCode && TEAM_MAP[directCode]) {
+    return { code: directCode, known: true, clinched: true, projected: false, label: TEAM_MAP[directCode].name };
+  }
+  // Fallback: resolve the winner's slot (works when standings are available)
   const side = hs > as_ ? 'home' : 'away';
-  const resolved = resolveMatchSide(m, side);
-  if (resolved.known) return { ...resolved, clinched: true };
+  try {
+    const resolved = resolveMatchSide(m, side);
+    if (resolved.known) {
+      if (side === 'home') m.homeTeamCode = resolved.code;
+      else m.awayTeamCode = resolved.code;
+      return { ...resolved, clinched: true };
+    }
+  } catch(e) {}
   return { code: null, known: false, clinched: false, label: 'W' + matchId };
 }
 
@@ -2284,9 +2302,15 @@ function resolveLoserSlot(matchId) {
   if (!m || !Array.isArray(m.score)) return { code: null, known: false, clinched: false, label: 'L' + matchId };
   const [hs, as_] = m.score;
   if (hs === as_) return { code: null, known: false, clinched: false, label: 'L' + matchId };
+  const directCode = hs > as_ ? m.awayTeamCode : m.homeTeamCode;
+  if (directCode && TEAM_MAP[directCode]) {
+    return { code: directCode, known: true, clinched: true, projected: false, label: TEAM_MAP[directCode].name };
+  }
   const side = hs > as_ ? 'away' : 'home';
-  const resolved = resolveMatchSide(m, side);
-  if (resolved.known) return { ...resolved, clinched: true };
+  try {
+    const resolved = resolveMatchSide(m, side);
+    if (resolved.known) return { ...resolved, clinched: true };
+  } catch(e) {}
   return { code: null, known: false, clinched: false, label: 'L' + matchId };
 }
 
