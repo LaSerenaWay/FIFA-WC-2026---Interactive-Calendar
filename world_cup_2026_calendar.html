@@ -1832,7 +1832,7 @@ const liveData = {
    Persists FT results across page reloads so yesterday's scores never vanish.
    Key: "HOME_AWAY"  Value: [homeScore, awayScore]
    ─────────────────────────────────────────────────────────────────────────── */
-const SCORE_CACHE_KEY = 'wc2026_ft_v1';
+const SCORE_CACHE_KEY = 'wc2026_ft_v2'; // bumped — forces re-fetch with corrected score orientation
 
 function loadScoreCache() {
   try { return JSON.parse(localStorage.getItem(SCORE_CACHE_KEY) || '{}'); }
@@ -1852,9 +1852,10 @@ function restoreScoresFromCache() {
     if (saved && !Array.isArray(m.score)) {
       m.score = [saved[0], saved[1]];
       m.statusLabel = 'FT';
-      // Restore penalty shootout winner (stored as 3rd element)
-      if (m.isKnockout && saved[2] && TEAM_MAP[saved[2]]) {
-        m.koWinner = saved[2];
+      if (m.isKnockout) {
+        if (saved[2] && TEAM_MAP[saved[2]]) m.koWinner     = saved[2]; // penalty winner
+        if (saved[3] && TEAM_MAP[saved[3]]) m.homeTeamCode = saved[3]; // definition-home team
+        if (saved[4] && TEAM_MAP[saved[4]]) m.awayTeamCode = saved[4]; // definition-away team
       }
     }
   });
@@ -2068,34 +2069,43 @@ function processScoreboard(data) {
     }
 
     if (match) {
-      match.score = [hScore, aScore];
       match.statusLabel = isFinal ? 'FT' : (isHT ? 'HT' : (isLive ? 'LIVE' : null));
       match.clock = clock;
       if (isLive) liveData.isLive = true;
 
-      // Persist final scores to localStorage so they survive page reloads.
-      // For penalty shootouts (equal score) we store a 3rd element: the winner code.
-      if (isFinal) {
-        const cacheScore = (hScore === aScore && match.isKnockout)
-          ? [hScore, aScore, home.winner === true ? hCode : aCode]
-          : [hScore, aScore];
-        saveToScoreCache(match.home, match.away, cacheScore);
-      }
-
-      // For knockout matches: stamp the ACTUAL team codes from ESPN directly onto the
-      // match object. resolveWinnerSlot reads these first so Morocco/Paraguay/etc.
-      // appear in the next round immediately — no standings or slot resolution needed.
       if (match.isKnockout) {
-        match.homeTeamCode = hCode;
-        match.awayTeamCode = aCode;
-        // Penalty shootout: score is a draw but ESPN marks the winner explicitly.
-        // Store the winning team code so resolveWinnerSlot can identify the winner.
-        if (hScore === aScore) {
-          const homeWon = home.winner === true;
-          const awayWon = away.winner === true;
-          match.koWinner = homeWon ? hCode : awayWon ? aCode : null;
+        // For knockout matches ESPN's home/away may differ from our definition's home/away
+        // (e.g. our M97 home=W89=Morocco but ESPN served France as home).
+        // Align the stored score with our definition so score[0] = definition-home's goals.
+        let defHS = hScore, defAS = aScore;
+        let homeCode = hCode, awayCode = aCode;
+        try {
+          const defHome = resolveMatchSide(match, 'home');
+          if (defHome.known && defHome.code && defHome.code === aCode) {
+            // ESPN's away team is our definition's home → flip
+            defHS = aScore; defAS = hScore;
+            homeCode = aCode; awayCode = hCode;
+          }
+        } catch(e) { /* keep ESPN orientation if resolution fails */ }
+
+        match.score = [defHS, defAS];
+        match.homeTeamCode = homeCode;
+        match.awayTeamCode = awayCode;
+
+        // Penalty shootout: store the actual winning team code
+        if (defHS === defAS) {
+          match.koWinner = home.winner === true ? hCode : away.winner === true ? aCode : null;
+        }
+
+        // Cache: [defHS, defAS, penWinner, homeCode, awayCode]
+        if (isFinal) {
+          saveToScoreCache(match.home, match.away,
+            [defHS, defAS, match.koWinner || '', homeCode, awayCode]);
         }
         clearBracketCache();
+      } else {
+        match.score = [hScore, aScore];
+        if (isFinal) saveToScoreCache(match.home, match.away, [hScore, aScore]);
       }
     }
     } catch(e) { /* per-event guard: log nothing, never let one bad event kill the loop */ }
